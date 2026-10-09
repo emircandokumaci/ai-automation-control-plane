@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+.env
+secrets/
+docker-compose.prod.yml
+bootstrap_remaining.py
+*.log
+.DS_Store

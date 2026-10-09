@@ -1,0 +1,101 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: controlplane
+      POSTGRES_USER: controlplane
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes:
+      - cp_postgres_data:/var/lib/postgresql/data
+    networks:
+      core:
+        aliases: [cp-postgres]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U controlplane -d controlplane"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 384m
+    cpus: 0.35
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8088}
+      OWNER_USERNAME: ${OWNER_USERNAME:-owner}
+      DB_PASSWORD_FILE: /run/secrets/db_password_app
+      SESSION_SECRET_FILE: /run/secrets/session_secret_app
+      OWNER_PASSWORD_FILE: /run/secrets/owner_password_app
+    secrets: [db_password_app, session_secret_app, owner_password_app]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8088:8000"
+    networks: [core, edge]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+    mem_limit: 384m
+    cpus: 0.35
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "apps.worker.main"]
+    environment:
+      DB_PASSWORD_FILE: /run/secrets/db_password_app
+      DB_HOST: cp-postgres
+      WORKER_ID: cp-worker-01
+      WORKER_CAPABILITIES: python,http,n8n
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      HTTP_ALLOWED_HOSTS: ${HTTP_ALLOWED_HOSTS:-}
+      N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
+      BINANCE_HEALTH_URL: ${BINANCE_HEALTH_URL:-http://example-service:8080/health}
+      YOUTUBE_HEALTH_FILE: ${YOUTUBE_HEALTH_FILE:-/integrations/youtube-health.json}
+    secrets: [db_password_app]
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [core, egress]
+    mem_limit: 512m
+    cpus: 0.50
+
+  scheduler:
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "apps.scheduler.main"]
+    environment:
+      DB_PASSWORD_FILE: /run/secrets/db_password_app
+    secrets: [db_password_app]
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [core]
+    mem_limit: 192m
+    cpus: 0.15
+
+networks:
+  core:
+    internal: true
+  edge:
+  egress:
+
+volumes:
+  cp_postgres_data:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+  db_password_app:
+    file: ./secrets/db_password_app
+  session_secret_app:
+    file: ./secrets/session_secret_app
+  owner_password_app:
+    file: ./secrets/owner_password_app

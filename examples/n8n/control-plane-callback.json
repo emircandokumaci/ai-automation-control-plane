@@ -1,0 +1,4 @@
+{
+  "name": "Control Plane Callback Pattern",
+  "description": "Example pattern: Webhook trigger -> work -> HTTP callback to /internal/n8n/events. Import manually and use a scoped service token."
+}

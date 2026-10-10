@@ -1,0 +1,29 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: controlplane
+          POSTGRES_PASSWORD: controlplane
+          POSTGRES_DB: controlplane
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U controlplane -d controlplane" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://controlplane:controlplane@127.0.0.1:5432/controlplane
+      SESSION_SECRET: test-secret
+      OWNER_PASSWORD: test-password
+      COVERAGE_FILE: /tmp/.coverage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r requirements.txt
+      - run: alembic upgrade head
+      - run: pytest --cov=controlplane --cov=apps
